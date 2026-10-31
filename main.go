@@ -12,12 +12,11 @@ import (
 	"github.com/Massad/gin-boilerplate/forms"
 	"github.com/Massad/gin-boilerplate/invoice"
 	"github.com/Massad/gin-boilerplate/middleware"
-	"github.com/gin-contrib/gzip"
-	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
+	"github.com/Massad/gin-boilerplate/renderer"
+	"github.com/Massad/gin-boilerplate/router"
+	"github.com/Massad/gin-boilerplate/swagger"
 	"github.com/joho/godotenv"
-	swaggerfiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
+	"github.com/labstack/echo/v4"
 )
 
 // @title           Golang Gin Boilerplate
@@ -47,18 +46,21 @@ func main() {
 		log.Fatal("error: failed to load the env file")
 	}
 
-	if os.Getenv("ENV") == "PRODUCTION" {
-		gin.SetMode(gin.ReleaseMode)
-	}
+	r := echo.New()
+	r.HideBanner = true
+	r.HidePort = true
+	r.IPExtractor = echo.ExtractIPDirect()
 
-	r := gin.Default()
-	r.SetTrustedProxies(nil)
+	r.Binder = new(forms.JSONBinder)
+	r.Validator = new(forms.DefaultValidator)
+	r.JSONSerializer = new(renderer.JSONSerializer)
+	r.Renderer = renderer.New("./public/html/*")
 
-	binding.Validator = new(forms.DefaultValidator)
-
+	r.Use(middleware.RequestLogger())
+	r.Use(middleware.Recover())
 	r.Use(middleware.CORS())
 	r.Use(middleware.RequestID())
-	r.Use(gzip.Gzip(gzip.DefaultCompression))
+	r.Use(middleware.Gzip())
 
 	db.Init()
 	db.InitRedis(1)
@@ -70,7 +72,7 @@ func main() {
 
 		v1.POST("/user/login", user.Login)
 		v1.POST("/user/register", user.Register)
-		v1.GET("/user/logout", middleware.TokenAuth(), user.Logout)
+		v1.GET("/user/logout", user.Logout, middleware.TokenAuth())
 
 		/*** START AUTH ***/
 		auth := new(controllers.AuthController)
@@ -80,11 +82,11 @@ func main() {
 		/*** START Article ***/
 		article := new(controllers.ArticleController)
 
-		v1.POST("/article", middleware.TokenAuth(), article.Create)
-		v1.GET("/articles", middleware.TokenAuth(), article.All)
-		v1.GET("/article/:id", middleware.TokenAuth(), article.One)
-		v1.PUT("/article/:id", middleware.TokenAuth(), article.Update)
-		v1.DELETE("/article/:id", middleware.TokenAuth(), article.Delete)
+		v1.POST("/article", article.Create, middleware.TokenAuth())
+		v1.GET("/articles", article.All, middleware.TokenAuth())
+		v1.GET("/article/:id", article.One, middleware.TokenAuth())
+		v1.PUT("/article/:id", article.Update, middleware.TokenAuth())
+		v1.DELETE("/article/:id", article.Delete, middleware.TokenAuth())
 
 		/*** START Invoice ***/
 		inv := new(invoice.InvoiceController)
@@ -93,22 +95,40 @@ func main() {
 		v1.GET("/invoice/download", inv.Download)
 	}
 
-	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerfiles.Handler))
+	r.GET("/swagger/*", swagger.Handler())
 
-	r.LoadHTMLGlob("./public/html/*")
+	static := middleware.StaticFiles("/public", "./public")
+	r.GET("/public/*", static)
+	r.HEAD("/public/*", static)
 
-	r.Static("/public", "./public")
-
-	r.GET("/", func(c *gin.Context) {
-		c.HTML(http.StatusOK, "index.html", gin.H{
+	r.GET("/", func(c echo.Context) error {
+		return c.Render(http.StatusOK, "index.html", echo.Map{
 			"ginBoilerplateVersion": "v3.0",
 			"goVersion":             runtime.Version(),
 		})
 	})
 
-	r.NoRoute(func(c *gin.Context) {
-		c.HTML(404, "404.html", gin.H{})
-	})
+	table := routeTable(r)
+	r.Pre(middleware.DecodedPathRouting())
+	r.Pre(middleware.TrailingSlashRedirect(table))
+	r.Pre(middleware.DeferredStatus())
+	r.Use(middleware.RouteGuard(table))
+
+	reportError := r.HTTPErrorHandler
+	r.HTTPErrorHandler = func(err error, c echo.Context) {
+		if c.Response().Committed {
+			return
+		}
+		//Unmatched routes and unmatched methods both fall through to the 404 page
+		if httpErr, ok := err.(*echo.HTTPError); ok &&
+			(httpErr.Code == http.StatusNotFound || httpErr.Code == http.StatusMethodNotAllowed) {
+			c.Response().Header().Del(echo.HeaderAllow)
+			if renderErr := c.Render(http.StatusNotFound, "404.html", echo.Map{}); renderErr == nil {
+				return
+			}
+		}
+		reportError(err, c)
+	}
 
 	port := os.Getenv("PORT")
 
@@ -123,8 +143,16 @@ func main() {
 			KEY:  "./cert/myCA.key",
 		}
 
-		r.RunTLS(":"+port, SSLKeys.CERT, SSLKeys.KEY)
+		r.Logger.Fatal(r.StartTLS(":"+port, SSLKeys.CERT, SSLKeys.KEY))
 	} else {
-		r.Run(":" + port)
+		r.Logger.Fatal(r.Start(":" + port))
 	}
+}
+
+func routeTable(r *echo.Echo) *router.Table {
+	routes := make(map[string][]string)
+	for _, route := range r.Routes() {
+		routes[route.Method] = append(routes[route.Method], route.Path)
+	}
+	return router.New(routes)
 }

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
+	"github.com/labstack/echo/v4"
 )
 
 //DefaultValidator ...
@@ -16,10 +16,10 @@ type DefaultValidator struct {
 	validate *validator.Validate
 }
 
-var _ binding.StructValidator = &DefaultValidator{}
+var _ echo.Validator = &DefaultValidator{}
 
-//ValidateStruct ...
-func (v *DefaultValidator) ValidateStruct(obj interface{}) error {
+//Validate ...
+func (v *DefaultValidator) Validate(obj interface{}) error {
 
 	if kindOfData(obj) == reflect.Struct {
 
@@ -31,12 +31,6 @@ func (v *DefaultValidator) ValidateStruct(obj interface{}) error {
 	}
 
 	return nil
-}
-
-//Engine ...
-func (v *DefaultValidator) Engine() interface{} {
-	v.lazyinit()
-	return v.validate
 }
 
 func (v *DefaultValidator) lazyinit() {

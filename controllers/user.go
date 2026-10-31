@@ -6,7 +6,7 @@ import (
 
 	"net/http"
 
-	"github.com/gin-gonic/gin"
+	"github.com/labstack/echo/v4"
 )
 
 // UserController ...
@@ -15,8 +15,8 @@ type UserController struct{}
 var userModel = new(models.UserModel)
 
 // getUserID ...
-func getUserID(c *gin.Context) (userID int64) {
-	return c.MustGet("userID").(int64)
+func getUserID(c echo.Context) (userID int64) {
+	return c.Get("userID").(int64)
 }
 
 // Login User godoc
@@ -30,22 +30,25 @@ func getUserID(c *gin.Context) (userID int64) {
 // @Success 	 200  {object}  models.UserLoginResponse
 // @Failure      406  {object}  models.MessageResponse
 // @Router /user/login [post]
-func (ctrl UserController) Login(c *gin.Context) {
+func (ctrl UserController) Login(c echo.Context) error {
 	var loginForm forms.LoginForm
 
-	if validationErr := c.ShouldBindJSON(&loginForm); validationErr != nil {
+	if validationErr := c.Bind(&loginForm); validationErr != nil {
 		message := forms.Translate(validationErr, forms.LoginMessages)
-		c.AbortWithStatusJSON(http.StatusNotAcceptable, gin.H{"message": message})
-		return
+		return c.JSON(http.StatusNotAcceptable, echo.Map{"message": message})
+	}
+
+	if validationErr := c.Validate(&loginForm); validationErr != nil {
+		message := forms.Translate(validationErr, forms.LoginMessages)
+		return c.JSON(http.StatusNotAcceptable, echo.Map{"message": message})
 	}
 
 	user, token, err := userModel.Login(loginForm)
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusNotAcceptable, gin.H{"message": "Invalid login details"})
-		return
+		return c.JSON(http.StatusNotAcceptable, echo.Map{"message": "Invalid login details"})
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Successfully logged in", "user": user, "token": token})
+	return c.JSON(http.StatusOK, echo.Map{"message": "Successfully logged in", "user": user, "token": token})
 }
 
 // Register User godoc
@@ -59,22 +62,25 @@ func (ctrl UserController) Login(c *gin.Context) {
 // @Success 	 200  {object}  models.UserLoginResponse
 // @Failure      406  {object}  models.MessageResponse
 // @Router /user/register [post]
-func (ctrl UserController) Register(c *gin.Context) {
+func (ctrl UserController) Register(c echo.Context) error {
 	var registerForm forms.RegisterForm
 
-	if validationErr := c.ShouldBindJSON(&registerForm); validationErr != nil {
+	if validationErr := c.Bind(&registerForm); validationErr != nil {
 		message := forms.Translate(validationErr, forms.RegisterMessages)
-		c.AbortWithStatusJSON(http.StatusNotAcceptable, gin.H{"message": message})
-		return
+		return c.JSON(http.StatusNotAcceptable, echo.Map{"message": message})
+	}
+
+	if validationErr := c.Validate(&registerForm); validationErr != nil {
+		message := forms.Translate(validationErr, forms.RegisterMessages)
+		return c.JSON(http.StatusNotAcceptable, echo.Map{"message": message})
 	}
 
 	user, err := userModel.Register(registerForm)
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusNotAcceptable, gin.H{"message": err.Error()})
-		return
+		return c.JSON(http.StatusNotAcceptable, echo.Map{"message": err.Error()})
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Successfully registered", "user": user})
+	return c.JSON(http.StatusOK, echo.Map{"message": "Successfully registered", "user": user})
 }
 
 // Logout User godoc
@@ -87,18 +93,16 @@ func (ctrl UserController) Register(c *gin.Context) {
 // @Success 	 200  {object}  models.MessageResponse
 // @Failure      406  {object}  models.MessageResponse
 // @Router /user/logout [GET]
-func (ctrl UserController) Logout(c *gin.Context) {
-	au, err := authModel.ExtractTokenMetadata(c.Request)
+func (ctrl UserController) Logout(c echo.Context) error {
+	au, err := authModel.ExtractTokenMetadata(c.Request())
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"message": "User not logged in"})
-		return
+		return c.JSON(http.StatusBadRequest, echo.Map{"message": "User not logged in"})
 	}
 
 	deleted, delErr := authModel.DeleteAuth(au.AccessUUID)
 	if delErr != nil || deleted == 0 {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"message": "Invalid request"})
-		return
+		return c.JSON(http.StatusUnauthorized, echo.Map{"message": "Invalid request"})
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Successfully logged out"})
+	return c.JSON(http.StatusOK, echo.Map{"message": "Successfully logged out"})
 }

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
+	"github.com/labstack/echo/v4"
 )
 
 // InvoiceController ...
@@ -26,7 +26,7 @@ type ItemView struct {
 // @Produce html
 // @Success 200 {string} string "HTML page"
 // @Router /invoice [GET]
-func (ctrl InvoiceController) Preview(c *gin.Context) {
+func (ctrl InvoiceController) Preview(c echo.Context) error {
 	inv := SampleInvoice()
 
 	var items []ItemView
@@ -39,8 +39,8 @@ func (ctrl InvoiceController) Preview(c *gin.Context) {
 		})
 	}
 
-	// Requires template "invoice.html" loaded via r.LoadHTMLGlob("./public/html/*") in main.go
-	c.HTML(http.StatusOK, "invoice.html", gin.H{
+	// Requires template "invoice.html" loaded by the echo.Renderer set in main.go
+	return c.Render(http.StatusOK, "invoice.html", echo.Map{
 		"invoice": inv,
 		"items":   items,
 		"total":   fmt.Sprintf("%.2f", inv.Total()),
@@ -56,15 +56,14 @@ func (ctrl InvoiceController) Preview(c *gin.Context) {
 // @Success 200 {file} binary "PDF file"
 // @Failure 500 {object} object "Error generating PDF"
 // @Router /invoice/download [GET]
-func (ctrl InvoiceController) Download(c *gin.Context) {
+func (ctrl InvoiceController) Download(c echo.Context) error {
 	inv := SampleInvoice()
 
 	pdfBytes, err := GeneratePDF(inv)
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"message": "Could not generate PDF"})
-		return
+		return c.JSON(http.StatusInternalServerError, echo.Map{"message": "Could not generate PDF"})
 	}
 
-	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.pdf"`, inv.Number))
-	c.Data(http.StatusOK, "application/pdf", pdfBytes)
+	c.Response().Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.pdf"`, inv.Number))
+	return c.Blob(http.StatusOK, "application/pdf", pdfBytes)
 }

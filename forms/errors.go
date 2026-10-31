@@ -2,6 +2,7 @@ package forms
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/go-playground/validator/v10"
 )
@@ -15,7 +16,8 @@ const DefaultMessage = "Something went wrong, please try again later"
 // Translate converts a validation error into a user-friendly string
 // using the provided message map. Returns the first matched field error.
 func Translate(err error, messages ValidationMessages) string {
-	if _, ok := err.(*json.UnmarshalTypeError); ok {
+	var unmarshalTypeError *json.UnmarshalTypeError
+	if errors.As(err, &unmarshalTypeError) {
 		return DefaultMessage
 	}
 

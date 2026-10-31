@@ -18,19 +18,26 @@ import (
 	"github.com/Massad/gin-boilerplate/forms"
 	"github.com/Massad/gin-boilerplate/invoice"
 	"github.com/Massad/gin-boilerplate/middleware"
+	"github.com/Massad/gin-boilerplate/renderer"
 	"github.com/joho/godotenv"
 
-	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
+	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 )
 
-func SetupRouter() *gin.Engine {
-	r := gin.Default()
-	gin.SetMode(gin.TestMode)
+func SetupRouter() *echo.Echo {
+	r := echo.New()
+	r.HideBanner = true
+	r.HidePort = true
+
+	r.Use(middleware.RequestLogger())
+	r.Use(middleware.Recover())
+
+	r.Binder = new(forms.JSONBinder)
+	r.JSONSerializer = new(renderer.JSONSerializer)
 
 	//Custom form validator
-	binding.Validator = new(forms.DefaultValidator)
+	r.Validator = new(forms.DefaultValidator)
 
 	v1 := r.Group("/v1")
 	{
@@ -39,7 +46,7 @@ func SetupRouter() *gin.Engine {
 
 		v1.POST("/user/login", user.Login)
 		v1.POST("/user/register", user.Register)
-		v1.GET("/user/logout", middleware.TokenAuth(), user.Logout)
+		v1.GET("/user/logout", user.Logout, middleware.TokenAuth())
 
 		/*** START AUTH ***/
 		auth := new(controllers.AuthController)
@@ -49,11 +56,11 @@ func SetupRouter() *gin.Engine {
 		/*** START Article ***/
 		article := new(controllers.ArticleController)
 
-		v1.POST("/article", middleware.TokenAuth(), article.Create)
-		v1.GET("/articles", middleware.TokenAuth(), article.All)
-		v1.GET("/article/:id", middleware.TokenAuth(), article.One)
-		v1.PUT("/article/:id", middleware.TokenAuth(), article.Update)
-		v1.DELETE("/article/:id", middleware.TokenAuth(), article.Delete)
+		v1.POST("/article", article.Create, middleware.TokenAuth())
+		v1.GET("/articles", article.All, middleware.TokenAuth())
+		v1.GET("/article/:id", article.One, middleware.TokenAuth())
+		v1.PUT("/article/:id", article.Update, middleware.TokenAuth())
+		v1.DELETE("/article/:id", article.Delete, middleware.TokenAuth())
 
 		/*** START Invoice ***/
 		inv := new(invoice.InvoiceController)
@@ -62,14 +69,14 @@ func SetupRouter() *gin.Engine {
 		v1.GET("/invoice/download", inv.Download)
 	}
 
-	r.LoadHTMLGlob("../public/html/*")
+	r.Renderer = renderer.New("../public/html/*")
 
 	return r
 }
 
 func main() {
 	r := SetupRouter()
-	r.Run()
+	r.Logger.Fatal(r.Start(":8080"))
 }
 
 var loginCookie string
